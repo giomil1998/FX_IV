@@ -2,9 +2,81 @@ import pandas as pd
 import localprojections as lp
 import os
 # Load and preprocess data
-df = pd.read_csv("merged_panel_data_options_combined.csv")
+df = pd.read_csv("merged_panel_data_options_combined_daily.csv")
 print(df.head())
-#Standardize RRs so that they always express how cheaper it is to go long in foreign currency vis-a-vis going short the dollar for a given pair.
+# --- Minimal spec (Option A) + Plot ---
+
+
+# --- PREP (as before) ---
+
+flip_cols = ['MPS','RR_5','RR_10','RR_18','RR_25','RR_35']
+targets   = ['USDJPY','USDCAD','USDCHF']
+df.loc[df['Currency'].isin(targets), flip_cols] *= -1
+
+df['Date']    = pd.to_datetime(df['Date'])
+df['Pos_MPS'] = (df['MPS'] > 0).astype(int)
+
+df = df.set_index(['Currency','Date']).sort_index()
+
+# Keep only what we need for Option A
+use_cols = ['RR_35','Spot','MPS','Pos_MPS']
+df0 = df[use_cols].dropna()
+
+# --- Estimate Threshold Panel LP (Option A) ---
+endog   = ['RR_35']
+exog    = ['Spot']
+horizon = 20
+lags    = 1
+
+irf_on, irf_off = lp.ThresholdPanelLPX(
+    data=df0,
+    Y=endog,
+    X=exog,
+    threshold_var='Pos_MPS',
+    response=endog,
+    horizon=horizon,
+    lags=lags,
+    varcov='kernel',
+    ci_width=0.95
+)
+
+# --- Plot ---
+irfplot = lp.ThresholdIRFPlot(
+    irf_threshold_on=irf_on,
+    irf_threshold_off=irf_off,
+    response=endog,          # ['RR_35']
+    shock=['MPS'],           # IRF to MPS shock
+    n_columns=1,
+    n_rows=1,
+    maintitle='Threshold Panel LP — RR_35 response to MPS (Option A)',
+    show_fig=True,
+    save_pic=False
+)
+
+# Clean legend names (trace order: 0 grey zero, 1-3 ON mean/LB/UB, 4-6 OFF mean/LB/UB)
+for i in range(0, len(irfplot.data), 7):
+    irfplot.data[i+1].name = "Positive MPS (ON)"
+    irfplot.data[i+4].name = "Baseline (OFF)"
+
+# Optional: save a high-res PNG
+out_dir = "Figures/IRF_Plots"
+os.makedirs(out_dir, exist_ok=True)
+png_path = os.path.join(out_dir, "RR35_OptionA.png")
+# If this errors, install kaleido:  pip install -U kaleido
+irfplot.write_image(png_path, width=1800, height=1200, scale=2)
+print("Saved:", png_path)
+
+# Optional: export the underlying IRF data to CSV for auditing
+# This assumes the object exposes .to_frame(); if not, skip or adapt.
+try:
+    df_on  = irf_on.to_frame().reset_index()
+    df_off = irf_off.to_frame().reset_index()
+    df_on.to_csv(os.path.join(out_dir, "RR35_OptionA_ON.csv"), index=False)
+    df_off.to_csv(os.path.join(out_dir, "RR35_OptionA_OFF.csv"), index=False)
+except Exception:
+    pass
+
+# Standardize RRs so that they always express how cheaper it is to go long in foreign currency vis-a-vis going short the dollar for a given pair.
 # List of columns to multiply by -1
 #Settings
 rr = 'RR_35'
@@ -36,7 +108,7 @@ df = df.dropna(subset=['VIX', 'Spot', 'RR_35', 'Net_Dealer', 'Net_Asset_Mgr', 'N
 
 # Define model inputs
 endog = [rr, 'Net_Dealer', 'Net_Asset_Mgr', 'Net_Lev_Money']  # variables to forecast
-exog = ['VIX', 'Spot']  # MPS is the shock variable
+exog = ['Spot']  # MPS is the shock variable
 response = endog.copy()
 
 # Estimation settings
@@ -118,6 +190,6 @@ irfplot.write_image(png_path, width=3000, height=2000, scale=2)
 # So per subplot, set names on index 1 and 4
 for i in range(0, len(irfplot.data), 7):  # step by subplot
     irfplot.data[i+1].name = "Positive MPS"
-    irfplot.data[i+4].name = "Negative MPS"
+    irfplot.data[i+4].name = "Baseline"
 
 irfplot.show()
