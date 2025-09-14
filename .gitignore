@@ -1,0 +1,19 @@
+# IDE files
+.idea/
+.DS_Store
+
+# Python cache & venv
+__pycache__/
+*.pyc
+.venv/
+
+# Data & outputs
+*.csv
+*.xlsx
+*.duckdb
+Figures/
+Visualisation Figures/
+tables/
+*.png
+*.html
+*.zip
